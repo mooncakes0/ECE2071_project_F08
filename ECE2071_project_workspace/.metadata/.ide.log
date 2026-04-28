@@ -891,3 +891,5 @@ java.lang.NullPointerException: Cannot invoke "javax.swing.JTextField.getText()"
 2026-04-28 17:55:05,803 [INFO] ApiDb:452 - User favorites MCUs=[]
 2026-04-28 17:55:05,805 [INFO] ApiDb:448 - Save user favorites file C:\Users\JH/.stm32cubeide/favorites.boards.txt: 1 item(s)
 2026-04-28 17:55:05,805 [INFO] ApiDb:452 - User favorites Boards=[NUCLEO-L432KC]
+2026-04-28 17:57:28,157 [ERROR] LogOutputStream:75 - [STDERR_REDIRECT] 
+2026-04-28 17:57:28,159 [ERROR] LogOutputStream:75 - [STDERR_REDIRECT] 
