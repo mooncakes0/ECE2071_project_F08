@@ -111,14 +111,16 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  // PROCESSING STM
+	  HAL_SPI_Receive(&hspi1, &rawSample, 1, HAL_MAX_DELAY);
+
+	  filteredSample = (uint8_t)(((uint16_t)rawSample + (uint16_t)previousSample) / 2);
+
+	  HAL_UART_Transmit(&huart2, &filteredSample, 1, HAL_MAX_DELAY);
+
+	  previousSample = rawSample;
     /* USER CODE END WHILE */
-	 HAL_SPI_Receive(&hspi1, &rawSample, 1, HAL_MAX_DELAY);
 
-	 filteredSample = (uint8_t)(((uint16_t)rawSample + (uint16_t)previousSample) / 2);
-
-	 HAL_UART_Transmit(&huart2, &filteredSample, 1, HAL_MAX_DELAY);
-
-	 previousSample = rawSample;
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
