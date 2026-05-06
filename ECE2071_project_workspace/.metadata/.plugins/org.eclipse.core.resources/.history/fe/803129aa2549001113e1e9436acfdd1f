@@ -31,9 +31,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ECHO_TIMEOUT_US 30000
-#define DISTANCE_THRESHOLD_CM 10
-#define STOP_DELAY_MS 1000
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -73,14 +71,69 @@ static void MX_SPI1_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-void send_audio_sample(void);
-int get_distance_cm(void);
-void delay_us(uint16_t us);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define ECHO_TIMEOUT_US 30000
+#define DISTANCE_THRESHOLD_CM 10
+#define STOP_DELAY_MS 1000
 
+void delay_us(uint16_t us)
+{
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+
+    while (__HAL_TIM_GET_COUNTER(&htim16) < us)
+    {
+        // wait
+    }
+}
+
+int get_distance_cm(void)
+{
+    uint32_t pulseWidth = 0;
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+    delay_us(2);
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
+    delay_us(10);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_RESET)
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);
+
+    return (int)(pulseWidth / 58);
+}
+
+void send_audio_sample(void)
+{
+    HAL_SPI_Receive(&hspi1, &rawSample, 1, HAL_MAX_DELAY);
+
+    filteredSample = (uint8_t)(((uint16_t)rawSample + (uint16_t)previousSample) / 2);
+
+    HAL_UART_Transmit(&huart2, &filteredSample, 1, HAL_MAX_DELAY);
+
+    previousSample = rawSample;
+}
 /* USER CODE END 0 */
 
 /**
@@ -431,62 +484,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void send_audio_sample(void)
-{
-    HAL_SPI_Receive(&hspi1, &rawSample, 1, HAL_MAX_DELAY);
 
-    filteredSample = (uint8_t)(((uint16_t)rawSample + (uint16_t)previousSample) / 2);
-
-    HAL_UART_Transmit(&huart2, &filteredSample, 1, HAL_MAX_DELAY);
-
-    previousSample = rawSample;
-}
-
-
-int get_distance_cm(void)
-{
-    uint32_t pulseWidth = 0;
-
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
-    delay_us(2);
-
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-    delay_us(10);
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
-
-    __HAL_TIM_SET_COUNTER(&htim16, 0);
-    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_RESET)
-    {
-        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
-        {
-            return 999;
-        }
-    }
-
-    __HAL_TIM_SET_COUNTER(&htim16, 0);
-    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)
-    {
-        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
-        {
-            return 999;
-        }
-    }
-
-    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);
-
-    return (int)(pulseWidth / 58);
-}
-
-
-void delay_us(uint16_t us)
-{
-    __HAL_TIM_SET_COUNTER(&htim16, 0);
-
-    while (__HAL_TIM_GET_COUNTER(&htim16) < us)
-    {
-        // wait
-    }
-}
 /* USER CODE END 4 */
 
 /**
