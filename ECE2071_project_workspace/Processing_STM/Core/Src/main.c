@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,6 +52,15 @@ UART_HandleTypeDef huart2;
 uint8_t rawSample = 0;
 uint8_t previousSample = 0;
 uint8_t filteredSample = 0;
+
+uint8_t mode = 'M';	// 'M' = Manual, 'D' = Distance Trigger
+uint8_t command = 0;
+uint8_t recording = 1;
+
+uint32_t lastDetectedTime = 0;
+uint32_t lastDistanceCheck = 0;
+
+int distance_cm = -1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,7 +76,64 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define ECHO_TIMEOUT_US 30000
+#define DISTANCE_THRESHOLD_CM 10
+#define STOP_DELAY_MS 1000
 
+void delay_us(uint16_t us)
+{
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+
+    while (__HAL_TIM_GET_COUNTER(&htim16) < us)
+    {
+        // wait
+    }
+}
+
+int get_distance_cm(void)
+{
+    uint32_t pulseWidth = 0;
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+    delay_us(2);
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
+    delay_us(10);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_RESET)
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);
+
+    return (int)(pulseWidth / 58);
+}
+
+void send_audio_sample(void)
+{
+    HAL_SPI_Receive(&hspi1, &rawSample, 1, HAL_MAX_DELAY);
+
+    filteredSample = (uint8_t)(((uint16_t)rawSample + (uint16_t)previousSample) / 2);
+
+    HAL_UART_Transmit(&huart2, &filteredSample, 1, HAL_MAX_DELAY);
+
+    previousSample = rawSample;
+}
 /* USER CODE END 0 */
 
 /**
@@ -104,24 +170,64 @@ int main(void)
   MX_TIM16_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_Base_Start(&htim16);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // PROCESSING STM
-	  HAL_SPI_Receive(&hspi1, &rawSample, 1, HAL_MAX_DELAY);
+      if (HAL_UART_Receive(&huart2, &command, 1, 0) == HAL_OK)
+      {
+          if (command == 'M')
+          {
+              mode = 'M';
+              recording = 1;
+              previousSample = 0;
+          }
+          else if (command == 'D')
+          {
+              mode = 'D';
+              recording = 0;
+              lastDetectedTime = 0;
+              lastDistanceCheck = 0;
+              previousSample = 0;
+          }
+      }
+      if (mode == 'M')
+      {
+          send_audio_sample();
+      }
+      else if (mode == 'D')
+      {
+          if (HAL_GetTick() - lastDistanceCheck >= 100)
+          {
+              lastDistanceCheck = HAL_GetTick();
 
-	  filteredSample = (uint8_t)(((uint16_t)rawSample + (uint16_t)previousSample) / 2);
+              distance_cm = get_distance_cm();
 
-	  HAL_UART_Transmit(&huart2, &filteredSample, 1, HAL_MAX_DELAY);
+              if (distance_cm > 2 && distance_cm < DISTANCE_THRESHOLD_CM)
+              {
+                  recording = 1;
+                  lastDetectedTime = HAL_GetTick();
+              }
 
-	  previousSample = rawSample;
-    /* USER CODE END WHILE */
+              if (recording && (HAL_GetTick() - lastDetectedTime > STOP_DELAY_MS))
+              {
+                  recording = 0;
+              }
+          }
 
-    /* USER CODE BEGIN 3 */
+          if (recording)
+          {
+              send_audio_sample();
+          }
+          else
+          {
+              HAL_Delay(5);
+          }
+      }
+  /*USER CODE START 3 */
   }
   /* USER CODE END 3 */
 }
@@ -354,15 +460,10 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : Echo_Pin */
-  GPIO_InitStruct.Pin = Echo_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(Echo_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Trigger_Pin */
   GPIO_InitStruct.Pin = Trigger_Pin;
@@ -370,6 +471,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(Trigger_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Echo_Pin */
+  GPIO_InitStruct.Pin = Echo_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(Echo_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
