@@ -57,38 +57,64 @@ BAUD_RATE = 921600
 SAMPLE_RATE = 48000
 TEAM_ID = "F08"
 
-
-# Serial setup
+# Main CLI
 # =========================
-devices = stlp.comports()
-print("Available serial ports:")
-for device in devices:
-    print(device)
+def main():
+    
+    # Serial setup
+    # =========================
+    devices = stlp.comports()
+    print("Available serial ports:")
+    for device in devices:
+        print(device)
 
-ser = serial.Serial(STM32_PORT, BAUD_RATE, timeout=0.1)
-print(f"Connected to {STM32_PORT} at {BAUD_RATE} baud")
+    try:
+        ser = serial.Serial(STM32_PORT, BAUD_RATE, timeout=0.1)
+        print(f"Connected to {STM32_PORT} at {BAUD_RATE} baud")
+    except Exception as error_string:
+        print(f"connection to {STM32_PORT} failed, with error string: {error_string}")
 
-# why does this exist when we have baud rate and port defined in settings
-stm32_port = "COM3" # To be modified each time
-baud_rate = 921600
+        
+    # Main loop
+    # =========================
+    while True:
+        print("\n===== ECE2071 Task 2 CLI =====")
+        print("1. Manual Recording Mode")
+        print("2. Distance Trigger Mode")
+        print("3. Exit")
+
+        mode = input("Choose mode: ").strip()
+
+        if mode == "1":
+            manual_recording_mode(ser)
+        elif mode == "2":
+            distance_trigger_mode(ser)
+        elif mode == "3":
+            print("Exiting.")
+            break
+        else:
+            print("Invalid option.")
+    ser.close()
+    return
 
 
 # Save output functions
 # =========================
-def save_wav(samples):
+def save_wav(samples: bytearray) -> None:
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{TEAM_ID}_{SAMPLE_RATE}Hz_{timestamp}.wav"
     data = np.array(samples, dtype=np.uint8)
 
     with wave.open(filename, "wb") as wf:
         wf.setnchannels(1)
-        wf.setsampwidth(2)       # 2 byte or 16-bit audio 
+        wf.setsampwidth(1)       # 1 byte or 8-bit audio, does this need to be changed to 2 bytes?
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(data.tobytes())
 
     print(f"Saved WAV: {filename}")
+    return
 
-def save_csv(samples):
+def save_csv(samples: bytearray) -> None:
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{TEAM_ID}_{SAMPLE_RATE}Hz_{timestamp}.csv"
 
@@ -101,8 +127,9 @@ def save_csv(samples):
             writer.writerow([i, value])
 
     print(f"Saved CSV: {filename}")
+    return
 
-def save_png(samples):
+def save_png(samples: bytearray) -> None:
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{TEAM_ID}_{SAMPLE_RATE}Hz_{timestamp}.png"
     data = np.array(samples, dtype=np.uint8)
@@ -118,18 +145,17 @@ def save_png(samples):
     plt.close()
 
     print(f"Saved PNG: {filename}")
+    return
 
-def choose_outputs(samples):
+def choose_outputs(samples: bytearray) -> None:
     if len(samples) == 0:
         print("No samples to save.")
         return
 
-    print("\nChoose output format:")
-    print("1. WAV")
-    print("2. CSV")
-    print("3. PNG")
-    print("4. WAV + CSV + PNG")
-
+    print("output format:")
+    print("="*50)
+    print("1. WAV \n2. CSV \n3. PNG \n4. WAV + CSV + PNG")
+    
     choice = input("Choice: ").strip()
 
     if choice == "1":
@@ -145,16 +171,11 @@ def choose_outputs(samples):
     else:
         print("Invalid choice. Saving WAV by default.")
         save_wav(samples)
+    return
 
 # Recording functions
 # =========================
-def read_one_byte():
-    reply = ser.read(1)
-    if len(reply) == 1:
-        return reply[0]
-    return None
-
-def manual_recording_mode():
+def manual_recording_mode(ser: serial.Serial) -> None:
     seconds = float(input("Enter recording length in seconds: "))
     num_samples = int(seconds * SAMPLE_RATE)
 
@@ -190,8 +211,9 @@ def manual_recording_mode():
     print(f"Actual receive rate: {actual_rate:.1f} samples/s")
 
     choose_outputs(list(samples))
+    return
 
-def distance_trigger_mode():
+def distance_trigger_mode(ser: serial.Serial) -> None:
     ser.reset_input_buffer()
     ser.write(b'D')
     ser.flush()
@@ -245,29 +267,16 @@ def distance_trigger_mode():
 
     except KeyboardInterrupt:
         print("\nLeaving Distance Trigger Mode.")
+    return
 
-# Main CLI
-# =========================
-def main():
-    while True:
-        print("\n===== ECE2071 Task 2 CLI =====")
-        print("1. Manual Recording Mode")
-        print("2. Distance Trigger Mode")
-        print("3. Exit")
-
-        mode = input("Choose mode: ").strip()
-
-        if mode == "1":
-            manual_recording_mode()
-        elif mode == "2":
-            distance_trigger_mode()
-        elif mode == "3":
-            print("Exiting.")
-            break
-        else:
-            print("Invalid option.")
-    ser.close()
-
+# this function is never used?? commented out for now
+'''
+def read_one_byte(ser):
+    reply = ser.read(1)
+    if len(reply) == 1:
+        return reply[0]
+    return None
+'''
 
 if __name__ == "__main__":
     main()
