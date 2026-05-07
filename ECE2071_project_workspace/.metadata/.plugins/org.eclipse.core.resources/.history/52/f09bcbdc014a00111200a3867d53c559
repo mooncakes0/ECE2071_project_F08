@@ -155,7 +155,9 @@ int main(void)
           if (HAL_GetTick() - lastDistanceCheck >= 100)	// check distance every 100ms
           {
               lastDistanceCheck = HAL_GetTick();
+
               distance_cm = get_distance_cm();
+
               if (distance_cm > 1 && distance_cm < DISTANCE_THRESHOLD_CM)	// if distance between 1 and 10 cm
               {
                   recording = 1;
@@ -497,8 +499,8 @@ void send_audio_sample(void)
         __HAL_SPI_CLEAR_OVRFLAG(&hspi1);	// clear overrun flag
     }
 
-    // checks for outlier values
     int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// calculate the difference between new and previous sample
+
     if (abs(delta) > OUTLIER_THRESHOLD)	// if the absolute value of the differences over the threshold
     {
         outlierStrike++;	// increment outlier count

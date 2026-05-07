@@ -22,7 +22,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
-#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -155,7 +154,9 @@ int main(void)
           if (HAL_GetTick() - lastDistanceCheck >= 100)	// check distance every 100ms
           {
               lastDistanceCheck = HAL_GetTick();
+
               distance_cm = get_distance_cm();
+
               if (distance_cm > 1 && distance_cm < DISTANCE_THRESHOLD_CM)	// if distance between 1 and 10 cm
               {
                   recording = 1;
@@ -480,6 +481,7 @@ int get_distance_cm(void)
 
 void send_audio_sample(void)
 {
+    static uint8_t sampleToggle = 0;	// used to send only every second sample
     static uint8_t outlierStrike = 0;	// count repeated outlier count
 
     if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == 0)	// check if SPI receive new data (RXNE = Receive buffer Not Empty)
@@ -497,9 +499,9 @@ void send_audio_sample(void)
         __HAL_SPI_CLEAR_OVRFLAG(&hspi1);	// clear overrun flag
     }
 
-    // checks for outlier values
     int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// calculate the difference between new and previous sample
-    if (abs(delta) > OUTLIER_THRESHOLD)	// if the absolute value of the differences over the threshold
+
+    if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)	// if the differences over the threshold
     {
         outlierStrike++;	// increment outlier count
         if (outlierStrike < 5)
@@ -519,8 +521,12 @@ void send_audio_sample(void)
     filteredSample = (rawSample + previousSample) / 2;	// moving average filter
     previousSample = rawSample;
 
-    uint8_t uartOut = (uint8_t)(filteredSample >> 2);	//	convert 10bit to 8bit
-    HAL_UART_Transmit(&huart2, &uartOut, 1, 1);
+    sampleToggle = !sampleToggle;	// toggle between 1 and 0 so the sample rate is half
+    if (sampleToggle)
+    {
+        uint8_t uartOut = (uint8_t)(filteredSample >> 2);	//	convert 10bit to 8bit
+        HAL_UART_Transmit(&huart2, &uartOut, 1, 1);
+    }
 }
 /* USER CODE END 4 */
 
