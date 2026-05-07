@@ -519,8 +519,8 @@ void send_audio_sample(void)
     filteredSample = (rawSample + previousSample) / 2;	// moving average filter
     previousSample = rawSample;
 
-    uint8_t uartOut = (uint8_t)(filteredSample >> 2);	//	convert 10bit to 8bit
-    HAL_UART_Transmit(&huart2, &uartOut, 1, 1);
+    uint16_t uartOut = (uint8_t)(filteredSample);
+    HAL_UART_Transmit(&huart2, (uint8_t*)&uartOut, 2, 1);		// cast as 8bit for transfer
 }
 /* USER CODE END 4 */
 
