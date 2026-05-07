@@ -45,32 +45,33 @@ import csv
 import time
 import wave
 import serial
-import serial.tools.list_ports
+import serial.tools.list_ports as stlp
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 # Settings
 # =========================
-
 STM32_PORT = "COM3"
 BAUD_RATE = 921600
-SAMPLE_RATE = 22039
+SAMPLE_RATE = 48000
 TEAM_ID = "F08"
+
 
 # Serial setup
 # =========================
-
-devices = serial.tools.list_ports.comports()
-
+devices = stlp.comports()
 print("Available serial ports:")
 for device in devices:
     print(device)
 
+ser = serial.Serial(STM32_PORT, BAUD_RATE, timeout=0.1)
+print(f"Connected to {STM32_PORT} at {BAUD_RATE} baud")
+
+# why does this exist when we have baud rate and port defined in settings
 stm32_port = "COM3" # To be modified each time
 baud_rate = 921600
 
-ser = serial.Serial(stm32_port, baud_rate, timeout=0.1)
-print(f"Connected to {stm32_port} at {baud_rate} baud")
 
 # Save output functions
 # =========================
@@ -81,7 +82,7 @@ def save_wav(samples):
 
     with wave.open(filename, "wb") as wf:
         wf.setnchannels(1)
-        wf.setsampwidth(1)       # 8-bit audio
+        wf.setsampwidth(2)       # 2 byte or 16-bit audio 
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(data.tobytes())
 
@@ -247,21 +248,26 @@ def distance_trigger_mode():
 
 # Main CLI
 # =========================
-while True:
-    print("\n===== ECE2071 Task 2 CLI =====")
-    print("1. Manual Recording Mode")
-    print("2. Distance Trigger Mode")
-    print("3. Exit")
+def main():
+    while True:
+        print("\n===== ECE2071 Task 2 CLI =====")
+        print("1. Manual Recording Mode")
+        print("2. Distance Trigger Mode")
+        print("3. Exit")
 
-    mode = input("Choose mode: ").strip()
+        mode = input("Choose mode: ").strip()
 
-    if mode == "1":
-        manual_recording_mode()
-    elif mode == "2":
-        distance_trigger_mode()
-    elif mode == "3":
-        print("Exiting.")
-        break
-    else:
-        print("Invalid option.")
-ser.close()
+        if mode == "1":
+            manual_recording_mode()
+        elif mode == "2":
+            distance_trigger_mode()
+        elif mode == "3":
+            print("Exiting.")
+            break
+        else:
+            print("Invalid option.")
+    ser.close()
+
+
+if __name__ == "__main__":
+    main()
