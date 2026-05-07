@@ -51,9 +51,9 @@ TIM_HandleTypeDef htim16;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint8_t rawSample = 0;
-uint8_t previousSample = 0;
-uint8_t filteredSample = 0;
+uint16_t rawSample = 0;
+uint16_t previousSample = 0;
+uint16_t filteredSample = 0;
 
 uint8_t mode = 'M';	// 'M' = Manual, 'D' = Distance Trigger
 uint8_t command = 0;
@@ -80,7 +80,112 @@ void delay_us(uint16_t us);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define ECHO_TIMEOUT_US 30000
+#define DISTANCE_THRESHOLD_CM 10
+#define STOP_DELAY_MS 1000
+#define OUTLIER_THRESHOLD 150
 
+void delay_us(uint16_t us)
+{
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+
+    while (__HAL_TIM_GET_COUNTER(&htim16) < us)
+    {
+        // wait
+    }
+}
+
+int get_distance_cm(void)
+{
+    uint32_t pulseWidth = 0;
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+    delay_us(2);
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
+    delay_us(10);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_RESET)
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);
+
+    return (int)(pulseWidth / 58);
+}
+
+void send_audio_sample(void)
+{
+    static uint8_t sampleToggle = 0;
+    static uint8_t outlierStrike = 0;
+
+    // 1. NON-BLOCKING SPI RECEIVE
+    // If there is no new data yet, return immediately so the main loop can keep running
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == RESET)
+    {
+        return;
+    }
+
+    // Instantly read the hardware register (this automatically clears the RXNE flag)
+    rawSample = hspi1.Instance->DR;
+
+    // Clear OVR (Overrun) just in case we missed a frame, so it doesn't lock up
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_OVR) != RESET)
+    {
+        __HAL_SPI_CLEAR_OVRFLAG(&hspi1);
+    }
+
+    // 2. OUTLIER REJECTION & FILTER
+    int16_t delta = (int16_t)rawSample - (int16_t)previousSample;
+    if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)
+    {
+        outlierStrike++;
+        if (outlierStrike < 5)
+        {
+            rawSample = previousSample;
+        }
+        else
+        {
+            outlierStrike = 0;
+        }
+    }
+    else
+    {
+        outlierStrike = 0;
+    }
+
+    filteredSample = (rawSample + previousSample) / 2;
+    previousSample = rawSample;
+
+    // 3. DOWNSAMPLE & FAST UART TRANSMIT
+    sampleToggle = !sampleToggle;
+    if (sampleToggle)
+    {
+        uint8_t uartOut = (uint8_t)(filteredSample >> 2);
+
+        // Wait a tiny fraction of a microsecond until the Transmit Register is Empty
+        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET)
+        {
+        }
+        // Instantly drop the new byte into the hardware register
+        huart2.Instance->TDR = uartOut;
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -118,6 +223,7 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim16);
+  __HAL_SPI_ENABLE(&hspi1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -130,7 +236,7 @@ int main(void)
           {
               mode = 'M';
               recording = 1;
-              previousSample = 0;
+              previousSample = 512;
           }
           else if (command == 'D')
           {
@@ -138,7 +244,7 @@ int main(void)
               recording = 0;
               lastDetectedTime = 0;
               lastDistanceCheck = 0;
-              previousSample = 0;
+              previousSample = 512;
           }
       }
       if (mode == 'M')
@@ -306,7 +412,7 @@ static void MX_SPI1_Init(void)
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_SLAVE;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES_RXONLY;
-  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.DataSize = SPI_DATASIZE_16BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
@@ -374,7 +480,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 230400;
+  huart2.Init.BaudRate = 921600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
