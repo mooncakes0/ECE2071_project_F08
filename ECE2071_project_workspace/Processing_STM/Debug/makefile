@@ -60,8 +60,8 @@ all: main-build
 main-build: Processing_STM.elf secondary-outputs
 
 # Tool invocations
-Processing_STM.elf Processing_STM.map: $(OBJS) $(USER_OBJS) C:\Users\puy_m\Downloads\repo\ECE2071_project_F08\ECE2071_project_workspace\Processing_STM\STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Processing_STM.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\puy_m\Downloads\repo\ECE2071_project_F08\ECE2071_project_workspace\Processing_STM\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Processing_STM.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Processing_STM.elf Processing_STM.map: $(OBJS) $(USER_OBJS) D:\Users\JH\Documents\uni\Year3\ECE2071\ECE2071_project_F08\ECE2071_project_workspace\Processing_STM\STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Processing_STM.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"D:\Users\JH\Documents\uni\Year3\ECE2071\ECE2071_project_F08\ECE2071_project_workspace\Processing_STM\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Processing_STM.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

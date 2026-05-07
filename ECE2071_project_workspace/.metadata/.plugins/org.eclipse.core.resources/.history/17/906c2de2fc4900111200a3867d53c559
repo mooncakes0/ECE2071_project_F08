@@ -51,11 +51,11 @@ TIM_HandleTypeDef htim16;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint16_t rawSample = 0;			// new sample
+uint16_t rawSample = 0;	// new sample
 uint16_t previousSample = 0;	// previous sample for filter
 uint16_t filteredSample = 0;	// cleaned sample
 
-uint8_t mode = 'M';				// 'M' = Manual, 'D' = Distance Trigger
+uint8_t mode = 'M';	// 'M' = Manual, 'D' = Distance Trigger
 uint8_t command = 0;
 uint8_t recording = 1;
 
@@ -84,6 +84,99 @@ void delay_us(uint16_t us);
 #define DISTANCE_THRESHOLD_CM 10
 #define STOP_DELAY_MS 1000
 #define OUTLIER_THRESHOLD 150
+
+void delay_us(uint16_t us) // microsecond delay
+{
+    __HAL_TIM_SET_COUNTER(&htim16, 0);	// set timer16 to 0
+
+    while (__HAL_TIM_GET_COUNTER(&htim16) < us)	// block the code until time reach
+    {
+        // wait
+    }
+}
+
+int get_distance_cm(void)
+{
+    uint32_t pulseWidth = 0;
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 0);	//	reset trigger pin
+    delay_us(2);
+
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 1);	//	 send trigger pin HIGH for 10 microsecond
+    delay_us(10);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 0);
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);	// set timer to 0
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == 0)		// if echo pin is not HIGH
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)	// if echo pin went HIGH and did not went LOW
+    {
+        if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
+        {
+            return 999;
+        }
+    }
+
+    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);	// get the time of the echo HIGH
+
+    return (int)(pulseWidth / 58);
+}
+
+void send_audio_sample(void)
+{
+    static uint8_t sampleToggle = 0;	// used to send only every second sample
+    static uint8_t outlierStrike = 0;	// count repeated outlier count
+
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == 0)	// check if SPI receive new data (RXNE = Receive buffer Not Empty)
+    {
+        return;	// no new sample, leave this function
+    }
+
+    rawSample = hspi1.Instance->DR;	// read 16 bit of the SPI
+
+    rawSample = rawSample & 0x03FF;	// keep only the 10 bits
+
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_OVR) != 0)	// if overrun happened (overrun = new data arrive before old data was read)
+    {
+        __HAL_SPI_CLEAR_OVRFLAG(&hspi1);	// clear overrun flag
+    }
+
+    int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// calculate the difference between new and previous sample
+
+    if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)	// if the differences over the threshold
+    {
+        outlierStrike++;	// increment outlier count
+        if (outlierStrike < 5)
+        {
+            rawSample = previousSample;	// replace outlier with previous value
+        }
+        else
+        {
+            outlierStrike = 0;	// if many spike in a row, accept the value
+        }
+    }
+    else
+    {
+        outlierStrike = 0;	// if normal, reset outlier count
+    }
+
+    filteredSample = (rawSample + previousSample) / 2;	// moving average filter
+    previousSample = rawSample;
+
+    sampleToggle = !sampleToggle;	// toggle between 1 and 0 so the sample rate is half
+    if (sampleToggle)
+    {
+        uint8_t uartOut = (uint8_t)(filteredSample >> 2);	//	convert 10bit to 8bit
+        HAL_UART_Transmit(&huart2, &uartOut, 1, 1);
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -435,29 +528,31 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void delay_us(uint16_t us) // microsecond delay
+void send_audio_sample(void)
 {
-    __HAL_TIM_SET_COUNTER(&htim16, 0);	// set timer16 to 0
+    HAL_SPI_Receive(&hspi1, &rawSample, 1, HAL_MAX_DELAY);
 
-    while (__HAL_TIM_GET_COUNTER(&htim16) < us)	// block the code until time reach
-    {
-        // wait
-    }
+    filteredSample = (uint8_t)(((uint16_t)rawSample + (uint16_t)previousSample) / 2);
+
+    HAL_UART_Transmit(&huart2, &filteredSample, 1, HAL_MAX_DELAY);
+
+    previousSample = rawSample;
 }
+
 
 int get_distance_cm(void)
 {
     uint32_t pulseWidth = 0;
 
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 0);	//	reset trigger pin
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
     delay_us(2);
 
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 1);	//	 send trigger pin HIGH for 10 microsecond
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
     delay_us(10);
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 0);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
 
-    __HAL_TIM_SET_COUNTER(&htim16, 0);	// set timer to 0
-    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == 0)		// if echo pin is not HIGH
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_RESET)
     {
         if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
         {
@@ -466,7 +561,7 @@ int get_distance_cm(void)
     }
 
     __HAL_TIM_SET_COUNTER(&htim16, 0);
-    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)	// if echo pin went HIGH and did not went LOW
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)
     {
         if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
         {
@@ -474,57 +569,19 @@ int get_distance_cm(void)
         }
     }
 
-    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);	// get the time of the echo HIGH
+    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);
 
     return (int)(pulseWidth / 58);
 }
 
-void send_audio_sample(void)
+
+void delay_us(uint16_t us)
 {
-    static uint8_t sampleToggle = 0;	// used to send only every second sample
-    static uint8_t outlierStrike = 0;	// count repeated outlier count
+    __HAL_TIM_SET_COUNTER(&htim16, 0);
 
-    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == 0)	// check if SPI receive new data (RXNE = Receive buffer Not Empty)
+    while (__HAL_TIM_GET_COUNTER(&htim16) < us)
     {
-        return;	// no new sample, leave this function
-    }
-
-    rawSample = hspi1.Instance->DR;	// read 16 bit of the SPI
-
-    rawSample = rawSample & 0x03FF;	// keep only the 10 bits
-
-    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_OVR) != 0)	// if overrun happened (overrun = new data arrive before old data was read)
-    {
-        __HAL_SPI_CLEAR_OVRFLAG(&hspi1);	// clear overrun flag
-    }
-
-    int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// calculate the difference between new and previous sample
-
-    if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)	// if the differences over the threshold
-    {
-        outlierStrike++;	// increment outlier count
-        if (outlierStrike < 5)
-        {
-            rawSample = previousSample;	// replace outlier with previous value
-        }
-        else
-        {
-            outlierStrike = 0;	// if many spike in a row, accept the value
-        }
-    }
-    else
-    {
-        outlierStrike = 0;	// if normal, reset outlier count
-    }
-
-    filteredSample = (rawSample + previousSample) / 2;	// moving average filter
-    previousSample = rawSample;
-
-    sampleToggle = !sampleToggle;	// toggle between 1 and 0 so the sample rate is half
-    if (sampleToggle)
-    {
-        uint8_t uartOut = (uint8_t)(filteredSample >> 2);	//	convert 10bit to 8bit
-        HAL_UART_Transmit(&huart2, &uartOut, 1, 1);
+        // wait
     }
 }
 /* USER CODE END 4 */
