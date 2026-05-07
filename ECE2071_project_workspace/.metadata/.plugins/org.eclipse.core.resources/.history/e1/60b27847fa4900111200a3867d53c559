@@ -68,7 +68,13 @@ static void SPI1_WriteHalfWord (uint16_t tx_byte);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+static void SPI1_WriteHalfWord (uint16_t tx_byte)
+{
+	while (!LL_SPI_IsActiveFlag_TXE(SPI1)) {;}
+	LL_SPI_TransmitData16(SPI1, tx_byte);
+	while (LL_SPI_IsActiveFlag_BSY(SPI1)){;}
+	LL_SPI_ClearFlag_OVR(SPI1);
+}
 /* USER CODE END 0 */
 
 /**
@@ -310,7 +316,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 724;
+  htim1.Init.Period = 725;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
