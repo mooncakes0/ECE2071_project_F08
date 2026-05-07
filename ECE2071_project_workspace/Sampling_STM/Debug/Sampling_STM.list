@@ -39,13 +39,13 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  17 .debug_line   00014b5d  00000000  00000000  000444e8  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000e4fc8  00000000  00000000  00059045  2**0
+ 18 .debug_str    000e4fde  00000000  00000000  00059045  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  0013e00d  2**0
+ 19 .comment      00000043  00000000  00000000  0013e023  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  000051a0  00000000  00000000  0013e050  2**2
+ 20 .debug_frame  000051a0  00000000  00000000  0013e068  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 00000087  00000000  00000000  001431f0  2**0
+ 21 .debug_line_str 0000009d  00000000  00000000  00143208  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -646,26 +646,26 @@ static void SPI1_WriteHalfWord (uint16_t tx_byte)
  8000658:	af00      	add	r7, sp, #0
  800065a:	4603      	mov	r3, r0
  800065c:	80fb      	strh	r3, [r7, #6]
-	while (!LL_SPI_IsActiveFlag_TXE(SPI1)) {;}
+	while (!LL_SPI_IsActiveFlag_TXE(SPI1)) {;}	// wait until SPI transmit buffer is empty
  800065e:	bf00      	nop
  8000660:	480c      	ldr	r0, [pc, #48]	@ (8000694 <SPI1_WriteHalfWord+0x40>)
  8000662:	f7ff ff7c 	bl	800055e <LL_SPI_IsActiveFlag_TXE>
  8000666:	4603      	mov	r3, r0
  8000668:	2b00      	cmp	r3, #0
  800066a:	d0f9      	beq.n	8000660 <SPI1_WriteHalfWord+0xc>
-	LL_SPI_TransmitData16(SPI1, tx_byte);
+	LL_SPI_TransmitData16(SPI1, tx_byte);	// Send one 16-bit value over SPI
  800066c:	88fb      	ldrh	r3, [r7, #6]
  800066e:	4619      	mov	r1, r3
  8000670:	4808      	ldr	r0, [pc, #32]	@ (8000694 <SPI1_WriteHalfWord+0x40>)
  8000672:	f7ff ffac 	bl	80005ce <LL_SPI_TransmitData16>
-	while (LL_SPI_IsActiveFlag_BSY(SPI1)){;}
+	while (LL_SPI_IsActiveFlag_BSY(SPI1)){;}	// wait until SPI finish transfer
  8000676:	bf00      	nop
  8000678:	4806      	ldr	r0, [pc, #24]	@ (8000694 <SPI1_WriteHalfWord+0x40>)
  800067a:	f7ff ff83 	bl	8000584 <LL_SPI_IsActiveFlag_BSY>
  800067e:	4603      	mov	r3, r0
  8000680:	2b00      	cmp	r3, #0
  8000682:	d1f9      	bne.n	8000678 <SPI1_WriteHalfWord+0x24>
-	LL_SPI_ClearFlag_OVR(SPI1);
+	LL_SPI_ClearFlag_OVR(SPI1);	// clear overrun flag
  8000684:	4803      	ldr	r0, [pc, #12]	@ (8000694 <SPI1_WriteHalfWord+0x40>)
  8000686:	f7ff ff90 	bl	80005aa <LL_SPI_ClearFlag_OVR>
 }
@@ -719,13 +719,13 @@ int main(void)
   MX_USART2_UART_Init();
  80006bc:	f000 f9ca 	bl	8000a54 <MX_USART2_UART_Init>
   /* USER CODE BEGIN 2 */
-  LL_SPI_Enable(SPI1);
+  LL_SPI_Enable(SPI1);	// enable LL SPI controller
  80006c0:	4805      	ldr	r0, [pc, #20]	@ (80006d8 <main+0x40>)
  80006c2:	f7ff ff19 	bl	80004f8 <LL_SPI_Enable>
-  HAL_ADC_Start_IT(&hadc1);
+  HAL_ADC_Start_IT(&hadc1); // start ADC trigger on the timer
  80006c6:	4805      	ldr	r0, [pc, #20]	@ (80006dc <main+0x44>)
  80006c8:	f000 ffd8 	bl	800167c <HAL_ADC_Start_IT>
-  HAL_TIM_Base_Start(&htim1);
+  HAL_TIM_Base_Start(&htim1);	// start timer 1
  80006cc:	4804      	ldr	r0, [pc, #16]	@ (80006e0 <main+0x48>)
  80006ce:	f003 fb51 	bl	8003d74 <HAL_TIM_Base_Start>
   /* USER CODE END 2 */
@@ -900,7 +900,7 @@ static void MX_ADC1_Init(void)
  80007a4:	4b28      	ldr	r3, [pc, #160]	@ (8000848 <MX_ADC1_Init+0xc0>)
  80007a6:	2200      	movs	r2, #0
  80007a8:	605a      	str	r2, [r3, #4]
-  hadc1.Init.Resolution = ADC_RESOLUTION_10B;
+  hadc1.Init.Resolution = ADC_RESOLUTION_10B;	// read a 10 bit ADC value
  80007aa:	4b27      	ldr	r3, [pc, #156]	@ (8000848 <MX_ADC1_Init+0xc0>)
  80007ac:	2208      	movs	r2, #8
  80007ae:	609a      	str	r2, [r3, #8]
@@ -1087,7 +1087,7 @@ static void MX_SPI1_Init(void)
   SPI_InitStruct.Mode = LL_SPI_MODE_MASTER;
  80008ae:	f44f 7382 	mov.w	r3, #260	@ 0x104
  80008b2:	61fb      	str	r3, [r7, #28]
-  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_16BIT;
+  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_16BIT;	// changed to 16bit instead of 8 for task 3
  80008b4:	f44f 6370 	mov.w	r3, #3840	@ 0xf00
  80008b8:	623b      	str	r3, [r7, #32]
   SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
@@ -1179,7 +1179,7 @@ static void MX_TIM1_Init(void)
  800092a:	4b1d      	ldr	r3, [pc, #116]	@ (80009a0 <MX_TIM1_Init+0xa0>)
  800092c:	2200      	movs	r2, #0
  800092e:	609a      	str	r2, [r3, #8]
-  htim1.Init.Period = 725;
+  htim1.Init.Period = 725;	// 32 MHz / (725 + 1) = 44077 Hz
  8000930:	4b1b      	ldr	r3, [pc, #108]	@ (80009a0 <MX_TIM1_Init+0xa0>)
  8000932:	f240 22d5 	movw	r2, #725	@ 0x2d5
  8000936:	60da      	str	r2, [r3, #12]
@@ -1272,9 +1272,9 @@ static void MX_TIM16_Init(void)
  80009ac:	4b0f      	ldr	r3, [pc, #60]	@ (80009ec <MX_TIM16_Init+0x44>)
  80009ae:	4a10      	ldr	r2, [pc, #64]	@ (80009f0 <MX_TIM16_Init+0x48>)
  80009b0:	601a      	str	r2, [r3, #0]
-  htim16.Init.Prescaler = 0;
+  htim16.Init.Prescaler = 31;
  80009b2:	4b0e      	ldr	r3, [pc, #56]	@ (80009ec <MX_TIM16_Init+0x44>)
- 80009b4:	2200      	movs	r2, #0
+ 80009b4:	221f      	movs	r2, #31
  80009b6:	605a      	str	r2, [r3, #4]
   htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
  80009b8:	4b0c      	ldr	r3, [pc, #48]	@ (80009ec <MX_TIM16_Init+0x44>)
@@ -1514,12 +1514,12 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
  8000ae6:	b084      	sub	sp, #16
  8000ae8:	af00      	add	r7, sp, #0
  8000aea:	6078      	str	r0, [r7, #4]
-	uint16_t sampleValue = (uint16_t)HAL_ADC_GetValue(hadc);
+	uint16_t sampleValue = (uint16_t)HAL_ADC_GetValue(hadc);	// Read 10bit ADC value into 16bit storage
  8000aec:	6878      	ldr	r0, [r7, #4]
  8000aee:	f000 fe79 	bl	80017e4 <HAL_ADC_GetValue>
  8000af2:	4603      	mov	r3, r0
  8000af4:	81fb      	strh	r3, [r7, #14]
-	SPI1_WriteHalfWord(sampleValue);
+	SPI1_WriteHalfWord(sampleValue);	// send the audio through SPI to processing
  8000af6:	89fb      	ldrh	r3, [r7, #14]
  8000af8:	4618      	mov	r0, r3
  8000afa:	f7ff fdab 	bl	8000654 <SPI1_WriteHalfWord>

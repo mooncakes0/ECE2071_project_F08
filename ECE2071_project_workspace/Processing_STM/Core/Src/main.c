@@ -51,9 +51,9 @@ TIM_HandleTypeDef htim16;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint16_t rawSample = 0;
-uint16_t previousSample = 0;
-uint16_t filteredSample = 0;
+uint16_t rawSample = 0;	// new sample
+uint16_t previousSample = 0;	// previous sample for filter
+uint16_t filteredSample = 0;	// cleaned sample
 
 uint8_t mode = 'M';	// 'M' = Manual, 'D' = Distance Trigger
 uint8_t command = 0;
@@ -85,11 +85,11 @@ void delay_us(uint16_t us);
 #define STOP_DELAY_MS 1000
 #define OUTLIER_THRESHOLD 150
 
-void delay_us(uint16_t us)
+void delay_us(uint16_t us) // microsecond delay
 {
-    __HAL_TIM_SET_COUNTER(&htim16, 0);
+    __HAL_TIM_SET_COUNTER(&htim16, 0);	// set timer16 to 0
 
-    while (__HAL_TIM_GET_COUNTER(&htim16) < us)
+    while (__HAL_TIM_GET_COUNTER(&htim16) < us)	// block the code until time reach
     {
         // wait
     }
@@ -99,15 +99,15 @@ int get_distance_cm(void)
 {
     uint32_t pulseWidth = 0;
 
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 0);	//	reset trigger pin
     delay_us(2);
 
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 1);	//	 send trigger pin HIGH for 10 microsecond
     delay_us(10);
-    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, 0);
 
-    __HAL_TIM_SET_COUNTER(&htim16, 0);
-    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_RESET)
+    __HAL_TIM_SET_COUNTER(&htim16, 0);	// set timer to 0
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == 0)		// if echo pin is not HIGH
     {
         if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
         {
@@ -116,7 +116,7 @@ int get_distance_cm(void)
     }
 
     __HAL_TIM_SET_COUNTER(&htim16, 0);
-    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)
+    while (HAL_GPIO_ReadPin(Echo_GPIO_Port, Echo_Pin) == GPIO_PIN_SET)	// if echo pin went HIGH and did not went LOW
     {
         if (__HAL_TIM_GET_COUNTER(&htim16) > ECHO_TIMEOUT_US)
         {
@@ -124,66 +124,57 @@ int get_distance_cm(void)
         }
     }
 
-    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);
+    pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);	// get the time of the echo HIGH
 
     return (int)(pulseWidth / 58);
 }
 
 void send_audio_sample(void)
 {
-    static uint8_t sampleToggle = 0;
-    static uint8_t outlierStrike = 0;
+    static uint8_t sampleToggle = 0;	// used to send only every second sample
+    static uint8_t outlierStrike = 0;	// count repeated outlier count
 
-    // 1. NON-BLOCKING SPI RECEIVE
-    // If there is no new data yet, return immediately so the main loop can keep running
-    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == RESET)
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == 0)	// check if SPI receive new data (RXNE = Receive buffer Not Empty)
     {
-        return;
+        return;	// no new sample, leave this function
     }
 
-    // Instantly read the hardware register (this automatically clears the RXNE flag)
-    rawSample = hspi1.Instance->DR;
+    rawSample = hspi1.Instance->DR;	// read 16 bit of the SPI
 
-    // Clear OVR (Overrun) just in case we missed a frame, so it doesn't lock up
-    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_OVR) != RESET)
+    rawSample = rawSample & 0x03FF;	// keep only the 10 bits
+
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_OVR) != 0)	// if overrun happened (overrun = new data arrive before old data was read)
     {
-        __HAL_SPI_CLEAR_OVRFLAG(&hspi1);
+        __HAL_SPI_CLEAR_OVRFLAG(&hspi1);	// clear overrun flag
     }
 
-    // 2. OUTLIER REJECTION & FILTER
-    int16_t delta = (int16_t)rawSample - (int16_t)previousSample;
-    if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)
+    int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// calculate the difference between new and previous sample
+
+    if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)	// if the differences over the threshold
     {
-        outlierStrike++;
+        outlierStrike++;	// increment outlier count
         if (outlierStrike < 5)
         {
-            rawSample = previousSample;
+            rawSample = previousSample;	// replace outlier with previous value
         }
         else
         {
-            outlierStrike = 0;
+            outlierStrike = 0;	// if many spike in a row, accept the value
         }
     }
     else
     {
-        outlierStrike = 0;
+        outlierStrike = 0;	// if normal, reset outlier count
     }
 
-    filteredSample = (rawSample + previousSample) / 2;
+    filteredSample = (rawSample + previousSample) / 2;	// moving average filter
     previousSample = rawSample;
 
-    // 3. DOWNSAMPLE & FAST UART TRANSMIT
-    sampleToggle = !sampleToggle;
+    sampleToggle = !sampleToggle;	// toggle between 1 and 0 so the sample rate is half
     if (sampleToggle)
     {
-        uint8_t uartOut = (uint8_t)(filteredSample >> 2);
-
-        // Wait a tiny fraction of a microsecond until the Transmit Register is Empty
-        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET)
-        {
-        }
-        // Instantly drop the new byte into the hardware register
-        huart2.Instance->TDR = uartOut;
+        uint8_t uartOut = (uint8_t)(filteredSample >> 2);	//	convert 10bit to 8bit
+        HAL_UART_Transmit(&huart2, &uartOut, 1, 1);
     }
 }
 /* USER CODE END 0 */
@@ -253,19 +244,19 @@ int main(void)
       }
       else if (mode == 'D')
       {
-          if (HAL_GetTick() - lastDistanceCheck >= 100)
+          if (HAL_GetTick() - lastDistanceCheck >= 100)	// check distance every 100ms
           {
               lastDistanceCheck = HAL_GetTick();
 
               distance_cm = get_distance_cm();
 
-              if (distance_cm > 2 && distance_cm < DISTANCE_THRESHOLD_CM)
+              if (distance_cm > 1 && distance_cm < DISTANCE_THRESHOLD_CM)	// if distance between 1 and 10 cm
               {
                   recording = 1;
                   lastDetectedTime = HAL_GetTick();
               }
 
-              if (recording && (HAL_GetTick() - lastDetectedTime > STOP_DELAY_MS))
+              if (recording && (HAL_GetTick() - lastDetectedTime > STOP_DELAY_MS))	// if object have gone for at least 1 second
               {
                   recording = 0;
               }
