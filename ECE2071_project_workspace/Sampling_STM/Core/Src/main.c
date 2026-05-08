@@ -40,6 +40,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+/* USER CODE BEGIN PV */
 ADC_HandleTypeDef hadc1;
 
 TIM_HandleTypeDef htim1;
@@ -47,9 +48,6 @@ TIM_HandleTypeDef htim16;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
-
-/* USER CODE BEGIN PV */
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,7 +75,6 @@ static void SPI1_WriteHalfWord (uint16_t tx_byte);
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 	// we are using the internal clock of the stm to sample values at fixed points.
 	// this is done by using TIM1 which triggers the sampling when it over flows
@@ -118,9 +115,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // SAMPLING STM
-    /* USER CODE END WHILE */
 
+    /* USER CODE END WHILE */
+	  // SAMPLING STM
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -198,7 +195,7 @@ static void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc1.Init.Resolution = ADC_RESOLUTION_10B;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
@@ -272,7 +269,7 @@ static void MX_SPI1_Init(void)
   /* SPI1 parameter configuration*/
   SPI_InitStruct.TransferDirection = LL_SPI_FULL_DUPLEX;
   SPI_InitStruct.Mode = LL_SPI_MODE_MASTER;
-  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_8BIT;
+  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_12BIT;
   SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
   SPI_InitStruct.ClockPhase = LL_SPI_PHASE_1EDGE;
   SPI_InitStruct.NSS = LL_SPI_NSS_SOFT;
@@ -460,7 +457,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-	uint16_t sampleValue = (uint16_t)HAL_ADC_GetValue(hadc);	// Read 10bit ADC value into 16bit storage
+	uint16_t sampleValue = (uint16_t)HAL_ADC_GetValue(hadc);	// Read 12bit ADC value into 16bit storage
 	SPI1_WriteHalfWord(sampleValue);	// send the audio through SPI to processing
 }
 
