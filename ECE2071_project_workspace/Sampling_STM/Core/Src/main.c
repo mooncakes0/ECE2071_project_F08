@@ -1,3 +1,5 @@
+
+
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
@@ -40,7 +42,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-/* USER CODE BEGIN PV */
 ADC_HandleTypeDef hadc1;
 
 TIM_HandleTypeDef htim1;
@@ -48,6 +49,9 @@ TIM_HandleTypeDef htim16;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+
+/* USER CODE BEGIN PV */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -61,7 +65,7 @@ static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc);
-static void SPI1_WriteHalfWord (uint16_t tx_byte);
+static void SPI1_WriteTwoBytes (uint16_t tx_byte);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -75,10 +79,9 @@ static void SPI1_WriteHalfWord (uint16_t tx_byte);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
-	// we are using the internal clock of the stm to sample values at fixed points.
-	// this is done by using TIM1 which triggers the sampling when it over flows
-	// the over flow is based on the clock speed of the stm and the set period defined.
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -115,9 +118,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
     /* USER CODE END WHILE */
-	  // SAMPLING STM
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -195,7 +197,7 @@ static void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;	// read a 12 bit ADC value (output range: 0 - 4095)
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
@@ -269,7 +271,7 @@ static void MX_SPI1_Init(void)
   /* SPI1 parameter configuration*/
   SPI_InitStruct.TransferDirection = LL_SPI_FULL_DUPLEX;
   SPI_InitStruct.Mode = LL_SPI_MODE_MASTER;
-  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_12BIT;
+  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_16BIT;	// changed to 16bit instead of 8 for task 3 & 4
   SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
   SPI_InitStruct.ClockPhase = LL_SPI_PHASE_1EDGE;
   SPI_InitStruct.NSS = LL_SPI_NSS_SOFT;
@@ -305,9 +307,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
+  htim1.Init.Prescaler = 0;	// timer run directly from 32MHz clock
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 724;
+  htim1.Init.Period = 724;	// 32 MHz / (724 + 1) = 44137.9 Hz
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -349,7 +351,7 @@ static void MX_TIM16_Init(void)
 
   /* USER CODE END TIM16_Init 1 */
   htim16.Instance = TIM16;
-  htim16.Init.Prescaler = 0;
+  htim16.Init.Prescaler = 31;
   htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim16.Init.Period = 65535;
   htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -416,7 +418,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 230400;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -455,19 +457,18 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)	// run automatically trigger by tim1 (44.1kHz)
 {
-	uint16_t sampleValue = (uint16_t)HAL_ADC_GetValue(hadc);	// Read 12bit ADC value into 16bit storage
-	SPI1_WriteHalfWord(sampleValue);	// send the audio through SPI to processing
+	uint16_t sampleValue = (uint16_t)HAL_ADC_GetValue(hadc);	// Read 12 bit ADC value into 16bit storage
+	SPI1_WriteTwoBytes(sampleValue);	// send the audio through SPI to processing
 }
 
-
-static void SPI1_WriteHalfWord (uint16_t tx_byte)
+static void SPI1_WriteTwoBytes (uint16_t tx_byte)
 {
-	while (!LL_SPI_IsActiveFlag_TXE(SPI1)) {;}
-	LL_SPI_TransmitData16(SPI1, tx_byte);
-	while (LL_SPI_IsActiveFlag_BSY(SPI1)){;}
-	LL_SPI_ClearFlag_OVR(SPI1);
+	while (!LL_SPI_IsActiveFlag_TXE(SPI1)) {;}	// wait until SPI transmit buffer is empty
+	LL_SPI_TransmitData16(SPI1, tx_byte);	// Send one 16-bit value over SPI
+	while (LL_SPI_IsActiveFlag_BSY(SPI1)){;}	// wait until SPI finish transfer
+	LL_SPI_ClearFlag_OVR(SPI1);	// clear overrun flag
 }
 /* USER CODE END 4 */
 
@@ -502,3 +503,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+

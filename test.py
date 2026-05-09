@@ -1,67 +1,35 @@
-'''import numpy as np
-import wave
-import serial
-import serial.tools.list_ports
-
-devices = serial.tools.list_ports.comports()
-
-print("Available serial ports:")
-for device in devices:
-    print(device)
-
-stm32_port = "COM4" # To be modified each time
-baud_rate = 230400
-
-ser = serial.Serial(stm32_port, baud_rate, timeout=0.1)
-print(f"Connected to {stm32_port} at {baud_rate} baud")
-
-SAMPLE_RATE = 10000
-
-newEmptyList = []
-
-for i in range(5*SAMPLE_RATE):
-    reply = ser.read(1)
-    if len(reply) == 1:
-        data = reply[0]
-        newEmptyList.append(data)
-        print("raw and indexed:", reply, data)
-
-newdata = np.array(newEmptyList)
-
-newdata = (newdata - newdata.min()) / newdata.max()
-newdata = newdata * 255
-newdata = newdata.astype(np.uint8)  
-
-with wave.open('filename.wav', 'wb') as wf:
-    wf.setnchannels(1)
-    wf.setsampwidth(1)
-    wf.setframerate(SAMPLE_RATE)
-    wf.writeframes(newdata.tobytes())
-
-print("Done. Saved filename.wav")
-'''
-
 import csv
 import time
 import wave
 import serial
 import serial.tools.list_ports as stlp
-import numpy as np
 import matplotlib.pyplot as plt
-from array import array
-
+import numpy as np
 
 # Settings
 # =========================
-STM32_PORT = "COM3"
+STM32_PORT = "COM4"     # To be modified each time
 BAUD_RATE = 921600
-SAMPLE_RATE = 48000
+SAMPLE_RATE = 44138     # 32MHz / (724 + 1) = 44137.9  Hz
 TEAM_ID = "F08"
+
 
 # Main CLI
 # =========================
-def main():
-    
+def main() -> None:
+    """
+    Main function loop:
+    Initializes the serial connection to the STM32 device, displays available
+    ports, and provides a menu for selecting recording modes.
+
+    Modes:
+        1. Manual recording for a fixed duration
+        2. Distance-triggered recording
+        3. Exit program
+
+    The function runs continuously until the user exits or interrupts execution.
+    """
+
     # Serial setup
     # =========================
     devices = stlp.comports()
@@ -69,69 +37,90 @@ def main():
     for device in devices:
         print(device)
 
-    try:
-        ser = serial.Serial(STM32_PORT, BAUD_RATE, timeout=0.1)
-        print(f"Connected to {STM32_PORT} at {BAUD_RATE} baud")
-    except Exception as error_string:
-        print(f"connection to {STM32_PORT} failed, with error string: {error_string}")
+    ser = serial.Serial(STM32_PORT, BAUD_RATE, timeout=0.1)
+    print(f"Connected to {STM32_PORT} at {BAUD_RATE} baud")
 
-        
     # Main loop
     # =========================
     while True:
-        print("\n===== ECE2071 Task 2 CLI =====")
-        print("1. Manual Recording Mode")
-        print("2. Distance Trigger Mode")
-        print("3. Exit")
+        try:
+            print("\n===== ECE2071 Task 2 CLI =====")
+            print("1. Manual Recording Mode")
+            print("2. Distance Trigger Mode")
+            print("3. Exit")
 
-        mode = input("Choose mode: ").strip()
+            mode = input("Choose mode: ").strip()
 
-        if mode == "1":
-            manual_recording_mode(ser)
-        elif mode == "2":
-            distance_trigger_mode(ser)
-        elif mode == "3":
-            print("Exiting.")
-            break
-        else:
-            print("Invalid option.")
+            if mode == "1":
+                manual_recording_mode(ser)
+            elif mode == "2":
+                distance_trigger_mode(ser)
+            elif mode == "3":
+                print("Exiting.")
+                break
+            else:
+                print("Invalid option.")
+        except KeyboardInterrupt:
+            print("\nKeyboard Interrupt\nExiting.")
     ser.close()
-    return
 
 
 # Recording functions
 # =========================
 def manual_recording_mode(ser: serial.Serial) -> None:
+    """
+    Records audio samples for a user-specified duration.
+
+    Sends a command to the STM32 to start manual recording, receives packed
+    12-bit sample data over UART, unpacks it, and calculates the actual
+    sampling rate.
+
+    The captured data is unpacked and optionally saved in user-selected formats.
+
+    Args:
+        ser (serial.Serial): Active serial connection to the STM32 device.
+
+    Returns:
+        None:
+    """
     seconds = float(input("Enter recording length in seconds: "))
     num_samples = int(seconds * SAMPLE_RATE)
 
+    # Packed format: 2 samples = 3 bytes
+    num_bytes = ((num_samples + 1) // 2) * 3    # if num_sample is odd , add 1 before dividing so enough byte to read
+
     print("Manual recording started...")
     print(f"Need {num_samples} samples")
+    print(f"Need {num_bytes} packed bytes")
 
-    ser.reset_input_buffer()
+    ser.reset_input_buffer()    # reset the serial input buffer from old memory
     ser.write(b'M')
+    ser.flush()
     time.sleep(0.05)
 
-    samples = bytearray()
+    raw_bytes = []  # store raw UART byte before unpacking
     start_time = time.time()
     next_print = 5000
 
-    # since we are sending 2 bytes we need to collect 2*num_samples of bytes 
-    while len(samples) < 2*num_samples:
-        remaining = 2*num_samples - len(samples)
-        chunk = ser.read(min(remaining, 1024))
+    while len(raw_bytes) < num_bytes:
+        remaining = num_bytes - len(raw_bytes) # calculate how many more byte needed
+        chunk = ser.read(min(remaining, 1024))  # use 1024 byte max to avoid reading too much
 
         if len(chunk) > 0:
-            samples.extend(chunk)
+            raw_bytes.extend(chunk)
 
-            ## not sure what this does
-            if len(samples) >= next_print:
-                print(f"Received {min(next_print, num_samples)} / {num_samples}")
+            sample_count = (len(raw_bytes) // 3) * 2    # every 3 byte give two sample (estimate how many complete sample)
+
+            if sample_count >= next_print:
+                print(f"Received {min(sample_count, num_samples)} / {num_samples}")
                 next_print += 5000
 
-    # the data is in single bytes where each byte represent 1 sample when it should be 2 bytes per sample
-    # convert with helper function
-    converted_data = to_16bit(samples)
+    extra = len(raw_bytes) % 3  # if the bytes count is not multiply of 3 
+    if extra != 0:  # remove incomplete bytes
+        raw_bytes = raw_bytes[0:-extra]
+
+    samples = unpack_12bit_packed(raw_bytes)
+    samples = samples[0:num_samples] # remove extra sample if have more
 
     elapsed = time.time() - start_time
     actual_rate = len(samples) / elapsed
@@ -140,61 +129,75 @@ def manual_recording_mode(ser: serial.Serial) -> None:
     print(f"Elapsed time: {elapsed:.2f} s")
     print(f"Actual receive rate: {actual_rate:.1f} samples/s")
 
-    choose_outputs(converted_data)
+    choose_outputs(samples)
     return
 
+
 def distance_trigger_mode(ser: serial.Serial) -> None:
-    ser.reset_input_buffer()
-    ser.write(b'D')
-    ser.flush()
-    time.sleep(0.02)
-    ser.reset_input_buffer()
+    """
+    Records audio samples when triggered by proximity sensor within set range.
+    
+    Continuously listens for incoming data from the STM32. Recording starts when
+    data begins arriving and stops when no data is received for a specified timeout.
+
+    The captured data is unpacked and optionally saved in user-selected formats.
+
+    Args:
+        ser (Serial): Active serial connection to the STM32 device.
+
+    Returns:
+        None:
+    """
+    ser.reset_input_buffer()    # clear old memory
+    ser.write(b'D') # send command 
+    ser.flush() # make sure STM receive the command before proceeding
+    time.sleep(0.05)
 
     print("Distance Trigger Mode")
     print("Waiting for object...")
     print("Press Ctrl+C to return to menu.")
 
-    try:
+    try:    # to go back to main CLI
         while True:
-            samples = bytearray()
+            raw_bytes = [] # store raw UART byte before unpacking
 
-            # Wait for STM to start sending audio
             while True:
-                chunk = ser.read(1024)
+                chunk = ser.read(1024)  # before detection, try to read up to 1024 byte from STM, just a safety measure, will timeout automatically
 
                 if len(chunk) > 0:
-                    samples.extend(chunk)
+                    raw_bytes.extend(chunk) # store the first receive byte
                     print("Recording started.")
-                    break
+                    break   # leave this loop and to the main loop
 
             last_data_time = time.time()
             next_print = 5000
 
-            # Keep recording while STM keeps sending audio
             while True:
-                chunk = ser.read(1024)
+                chunk = ser.read(1024)  # read up to 1024 byte  
 
                 if len(chunk) > 0:
-                    samples.extend(chunk)
+                    raw_bytes.extend(chunk) # store byte 
                     last_data_time = time.time()
 
-                    if len(samples) >= next_print:
-                        print(f"Recorded {len(samples)} samples")
+                    sample_count = (len(raw_bytes) // 3) * 2    # 3byte = 2 sample (need to calculate how many sample)
+                    if sample_count >= next_print:
+                        print(f"Recorded {sample_count} samples")
                         next_print += 5000
 
                 else:
-                    # If no bytes for 1 second, assume STM stopped sending
-                    if time.time() - last_data_time > 1.0:
+                    if time.time() - last_data_time > 1.0:  # if the last byte came over 1 second before
                         print("Recording stopped.")
                         break
 
-            converted_data = to_16bit(samples)           
+            extra = len(raw_bytes) % 3  # remove incomplete packed byte
+            if extra != 0:
+                raw_bytes = raw_bytes[0:-extra]
 
+            samples = unpack_12bit_packed(raw_bytes)
             print(f"Captured {len(samples)} samples")
             print(f"Approx duration: {len(samples) / SAMPLE_RATE:.2f} seconds")
 
-            choose_outputs(converted_data)
-
+            choose_outputs(samples)
             print("Waiting for next trigger...")
 
     except KeyboardInterrupt:
@@ -204,20 +207,52 @@ def distance_trigger_mode(ser: serial.Serial) -> None:
 
 # Save output functions
 # =========================
-def save_wav(samples: array[int]) -> None:
+def save_wav(samples: list[int]) -> None:
+    """
+    Saves audio samples to a WAV file.
+
+    Converts unsigned 12-bit samples (0 - 4095) into signed 12-bit,
+    scales the amplitude, and writes the data to a mono WAV file.
+
+    Args:
+        samples (list[int]): List of 12-bit audio samples.
+
+    Returns:
+        None:
+    """
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{TEAM_ID}_{SAMPLE_RATE}Hz_{timestamp}.wav"
 
+    # Convert unsigned 12-bit to signed
+    data = np.array(samples, dtype=np.int32)
+    data = data - 2048                          # 0 to +4095 --> -2048 to +2047
+    data = data * 16                            # Scale 12-bit to 16 bit so volume louder
+
+    data = np.clip(data, -32768, 32767)         # make sure final value stay in range
+    data = data.astype(np.int16)                # convert to signed 16bit
+
     with wave.open(filename, "wb") as wf:
         wf.setnchannels(1)
-        wf.setsampwidth(2)       # 2 byte or 16-bit audio
+        wf.setsampwidth(2)                      # 2 bytes = 16 bit
         wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(samples.tobytes())
+        wf.writeframes(data.tobytes())
 
     print(f"Saved WAV: {filename}")
     return
 
-def save_csv(samples: array[int]) -> None:
+
+def save_csv(samples: list[int]) -> None:
+    """
+    Saves audio samples to a CSV file.
+
+    The file includes sample index and amplitude values for each sample.
+
+    Args:
+        samples (list[int]): List of 12-bit audio samples.
+
+    Returns:
+        None:
+    """
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{TEAM_ID}_{SAMPLE_RATE}Hz_{timestamp}.csv"
 
@@ -227,14 +262,28 @@ def save_csv(samples: array[int]) -> None:
         writer.writerow(["Sample Index", "Amplitude"])
 
         for i, value in enumerate(samples):
-            writer.writerow([i, value])
+            writer.writerow([i, value])         # value 0 to 4095
 
     print(f"Saved CSV: {filename}")
     return
 
-def save_png(samples: array[int]) -> None:
+
+def save_png(samples: list[int]) -> None:
+    """
+    Saves a plot of the audio waveform as a PNG image.
+
+    Converts samples to a NumPy array, generates a time axis based on the
+    sampling rate, and plots amplitude versus time.
+
+    Args:
+        samples (list[int]): List of 12-bit audio samples.
+
+    Returns:
+        None:
+    """
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{TEAM_ID}_{SAMPLE_RATE}Hz_{timestamp}.png"
+
     data = np.array(samples, dtype=np.uint16)
     t = np.arange(len(data)) / SAMPLE_RATE
 
@@ -250,16 +299,29 @@ def save_png(samples: array[int]) -> None:
     print(f"Saved PNG: {filename}")
     return
 
-def choose_outputs(samples: array[int]) -> None:
-    if len(samples) == 0:
+
+def choose_outputs(samples: list[int]) -> None:
+    """
+    Prompts the user to choose an output format and saves the samples accordingly.
+
+    Args:
+        samples (list[int]): List of sample values to be saved.
+
+    Returns:
+        None:
+    """
+    if len(samples) == 0: # if the sample is empty
         print("No samples to save.")
         return
 
-    print("output format:")
-    print("="*50)
-    print("1. WAV \n2. CSV \n3. PNG \n4. WAV + CSV + PNG")
-    
+    print("\nChoose output format:")
+    print("1. WAV")
+    print("2. CSV")
+    print("3. PNG")
+    print("4. WAV + CSV + PNG")
+
     choice = input("Choice: ").strip()
+
     if choice == "1":
         save_wav(samples)
     elif choice == "2":
@@ -273,34 +335,39 @@ def choose_outputs(samples: array[int]) -> None:
     else:
         print("Invalid choice. Saving WAV by default.")
         save_wav(samples)
-    return
-
-
-# this function is never used?? commented out for now
-'''
-def read_one_byte(ser):
-    reply = ser.read(1)
-    if len(reply) == 1:
-        return reply[0]
-    return None
-'''
 
 
 # helper functions
 # =========================
-def to_16bit(samples: bytearray) -> array[int]:
-    converted_data = array('H')
-    
-    # if length of sample is not multiple of 2 concatonate with null byte: b'\x00'
-    if len(samples)%2 != 0:
-        samples_cpy = samples + b'\x00'
+def unpack_12bit_packed(data: list[int]) -> list[int]:
+    """
+    Unpacks 12-bit samples from a packed byte stream.
 
-    for i in range(0, len(samples_cpy), 2):
-        lo = samples_cpy[i]                         # lower 8 bits as an int
-        hi = samples_cpy[i+1]                       # higher 8 bits as an int, only the first 4 bits should be occupied
-        converted_data.append(lo | (hi<<8))         # bitwise or to combine by first shifting hi by 8 bits to the left to get a 16 bit value with 12bits of information
-    return converted_data
-    
+    Each group of 3 bytes encodes 2 samples:
+    - Sample 1: byte0 (low 8 bits) + lower nibble of byte1
+    - Sample 2: upper nibble of byte1 + byte2
+
+    Args:
+        data (list[int]): List of byte values (0 - 255).
+
+    Returns:
+        samples (list[int]): Unpacked 12-bit samples (0 - 4095).
+    """
+    samples = []
+
+    for i in range(0, len(data) - 2, 3):            # each packet have 3 bytes (len(data)-2 protect code from reading past the end of the packet)
+        # stores value as int but python can perform bitwise operations on int 
+        b0 = data[i]                                # lower 8 bit of first sample
+        b1 = data[i + 1]                            # upper 4 bit of first sample and lower 4 bit of second sample
+        b2 = data[i + 2]                            # upper 8 bit of second sample
+
+        sample1 = b0 | ((b1 & 0x0F) << 8)           # rebuild the first sample
+        sample2 = (b1 >> 4) | (b2 << 4)             # rebuild the second sample
+
+        samples.append(sample1 & 0x0FFF)            # keep both sample 12 bit 
+        samples.append(sample2 & 0x0FFF)
+
+    return samples
 
 if __name__ == "__main__":
     main()

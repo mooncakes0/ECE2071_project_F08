@@ -22,7 +22,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
-#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,10 +31,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ECHO_TIMEOUT_US 30000
-#define DISTANCE_THRESHOLD_CM 10
-#define STOP_DELAY_MS 1000
-#define OUTLIER_THRESHOLD 150
+#define ECHO_TIMEOUT_US 8000	// max wait time 8000 microsecond
+#define DISTANCE_THRESHOLD_CM 10	// 10 CM ultrasonic sensor threshold
+#define STOP_DELAY_MS 1000	//	"short interval of time" which we put 1 second
+#define OUTLIER_THRESHOLD 600	// range is 0-4095, 600 reject large sudden spike
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,24 +44,25 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
-
 TIM_HandleTypeDef htim16;
-
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint16_t rawSample = 0;			// new sample
+uint16_t rawSample = 0;	// new sample
 uint16_t previousSample = 0;	// previous sample for filter
 uint16_t filteredSample = 0;	// cleaned sample
 
-uint8_t mode = 'M';				// 'M' = Manual, 'D' = Distance Trigger
+uint8_t mode = 'M';	// 'M' = Manual, 'D' = Distance Trigger
 uint8_t command = 0;
 uint8_t recording = 1;
 
 uint32_t lastDetectedTime = 0;
 uint32_t lastDistanceCheck = 0;
 
-int distance_cm = -1;
+int distance_cm = -1;	// haven't measure yet
+
+static uint8_t haveFirst = 0;	// task 4 packing (0 = no first sample stored)
+static uint16_t firstSample = 0;	// store first 12 bit sample until next sample arrive
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -72,9 +72,9 @@ static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM16_Init(void);
 /* USER CODE BEGIN PFP */
-void send_audio_sample(void);
-int get_distance_cm(void);
 void delay_us(uint16_t us);
+int get_distance_cm(void);
+void send_audio_sample(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -123,60 +123,59 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // Set operation mode
-	  if (HAL_UART_Receive(&huart2, &command, 1, 0) == HAL_OK)
-	  {
-		  if (command == 'M')
-		  {
-			  mode = 'M';
-	          recording = 1;
-	          previousSample = 512;
-		  }
-	      else if (command == 'D')
-	      {
-			  mode = 'D';
-			  recording = 0;
-			  lastDetectedTime = 0;
-			  lastDistanceCheck = 0;
-			  previousSample = 512;
-	      }
-	  }
+      if (HAL_UART_Receive(&huart2, &command, 1, 0) == HAL_OK)	// try to receive command from Python
+      {
+          if (command == 'M')
+          {
+              mode = 'M';
+              recording = 1;
+              previousSample = 2048;	// reset filter midpoint for 12 bit
+              haveFirst = 0;	// reset packed byte state
+          }
+          else if (command == 'D')
+          {
+              mode = 'D';
+              recording = 0;
+              lastDetectedTime = 0;
+              lastDistanceCheck = 0;
+              previousSample = 2048;	//	12 bit midpoint
+              haveFirst = 0;	// reset packed byte state
+          }
+      }
+      if (mode == 'M')
+      {
+          send_audio_sample();
+      }
+      else if (mode == 'D')
+      {
+          if (HAL_GetTick() - lastDistanceCheck >= 300)	// check distance every 300ms
+          {
+              lastDistanceCheck = HAL_GetTick();
 
-	  // Main operation loop
-	  if (mode == 'M')
-	  {
-	      send_audio_sample();
-	  }
-	  else if (mode == 'D'){
-		  // Check distance every 100ms
-		  if (HAL_GetTick() - lastDistanceCheck >= 100)
-		  {
-			  lastDistanceCheck = HAL_GetTick();
-	          distance_cm = get_distance_cm();
+              distance_cm = get_distance_cm();
 
-	          // If distance between 1 and 10 cm start recording
-	          if (distance_cm > 1 && distance_cm < DISTANCE_THRESHOLD_CM)
-	          {
-	        	  recording = 1;
-	        	  lastDetectedTime = HAL_GetTick();
-	          }
+              if (distance_cm > 1 && distance_cm < DISTANCE_THRESHOLD_CM)	// if distance between 1 and 10 cm
+              {
+                  recording = 1;
+                  lastDetectedTime = HAL_GetTick();
+              }
 
-	          // If object have gone for at least 1 second, stop recording
-	          if (recording && (HAL_GetTick() - lastDetectedTime > STOP_DELAY_MS))
-	          {
-	              recording = 0;
-	          }
-		  }
+              if (recording && (HAL_GetTick() - lastDetectedTime > STOP_DELAY_MS))	// if object have gone for at least 1 second
+              {
+                  recording = 0;
+                  haveFirst = 0;	// discard incomplete packed sample
+              }
+          }
 
-		  if (recording)
-		  {
-			  send_audio_sample();
-		  }
-		  else
-		  {
-			  HAL_Delay(5);
-		  }
-	  }
+          if (recording)
+          {
+              send_audio_sample();
+          }
+          else
+          {
+              HAL_Delay(5);
+          }
+      }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -241,7 +240,6 @@ void SystemClock_Config(void)
   */
 static void MX_SPI1_Init(void)
 {
-
   /* USER CODE BEGIN SPI1_Init 0 */
 
   /* USER CODE END SPI1_Init 0 */
@@ -280,7 +278,6 @@ static void MX_SPI1_Init(void)
   */
 static void MX_TIM16_Init(void)
 {
-
   /* USER CODE BEGIN TIM16_Init 0 */
 
   /* USER CODE END TIM16_Init 0 */
@@ -381,6 +378,7 @@ static void MX_GPIO_Init(void)
 void delay_us(uint16_t us) // microsecond delay
 {
     __HAL_TIM_SET_COUNTER(&htim16, 0);	// set timer16 to 0
+
     while (__HAL_TIM_GET_COUNTER(&htim16) < us)	// block the code until time reach
     {
         continue;
@@ -417,52 +415,79 @@ int get_distance_cm(void)
     }
 
     pulseWidth = __HAL_TIM_GET_COUNTER(&htim16);	// get the time of the echo HIGH
+
     return (int)(pulseWidth / 58);
 }
 
 void send_audio_sample(void)
 {
-    static uint8_t outlierStrike = 0;	// count repeated outlier count
+    static uint8_t outlierStrike = 0;   // Count repeated outliers
 
-    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == 0)	// check if SPI receive new data (RXNE = Receive buffer Not Empty)
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_RXNE) == 0)	//	if no new sample arrive
     {
-        return;	// no new sample, leave this function
+        return;	// return to main loop
     }
 
-    // read data directly from the SPI data register
-    // performs a "bitwise and" operation with a 12 bit binary mask to get LSB.
-    rawSample = hspi1.Instance->DR;
-    rawSample = rawSample & 0xFFF;	// keep only the least significant 12 bits
+    rawSample = hspi1.Instance->DR;     // Read 16-bit SPI value
+    rawSample = rawSample & 0x0FFF;     // Keep 12-bit sample only
 
-    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_OVR) != 0)	// if overrun happened (overrun = new data arrive before old data was read)
+    if (__HAL_SPI_GET_FLAG(&hspi1, SPI_FLAG_OVR) != 0)	// if SPI overrun (new sample arrive before old sample was read)
     {
-        __HAL_SPI_CLEAR_OVRFLAG(&hspi1);	// clear overrun flag
+        __HAL_SPI_CLEAR_OVRFLAG(&hspi1);	// clear flag so SPI can receive normally
     }
 
-    // checks for outlier values
-    int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// calculate the difference between new and previous sample
-    if (abs(delta) > OUTLIER_THRESHOLD)	// if the absolute value of the differences over the threshold
+    int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// to detect sudden spike
+    if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)
     {
-        outlierStrike++;	// increment outlier count
+        outlierStrike++;
+
         if (outlierStrike < 5)
         {
-            rawSample = previousSample;	// replace outlier with previous value
+            rawSample = previousSample;	//	reject new sample and replace with previous sample
         }
         else
         {
-            outlierStrike = 0;	// if many spike in a row, accept the value
+            outlierStrike = 0;	// too many outlier, the sample maybe real signal
         }
     }
     else
     {
-        outlierStrike = 0;	// if normal, reset outlier count
+        outlierStrike = 0;	// normal sample
     }
 
     filteredSample = (rawSample + previousSample) / 2;	// moving average filter
     previousSample = rawSample;
+    uint16_t sample = filteredSample & 0x0FFF;	// make sure is 12 bit
 
-    uint16_t uartOut = filteredSample;
-    HAL_UART_Transmit(&huart2, (uint8_t*)&uartOut, 2, 1);		// cast as 8bit for transfer
+    /*
+     * if send 12 bit sample as 2 byte: 44138 × 2 bytes × 10 UART bit = 882760 bits/s (baud rate overhead 921600)
+     * if send 24 bit sample as 3 byte: 44138 × 1.5 bytes × 10 UART bit =  662070 bits/s
+     */
+    if (!haveFirst)	// pack two 12 bit samples to send
+    {
+        firstSample = sample;	// this is the first sample
+        haveFirst = 1;	// wait for the second one
+    }
+    else
+    {
+        uint16_t secondSample = sample;	// this is the second sample
+        uint8_t tx[3];	// the package space
+
+        tx[0] = firstSample & 0xFF;	// store lower 8 bit of first sample
+        tx[1] = ((firstSample >> 8) & 0x0F) | ((secondSample & 0x0F) << 4);	// store upper 4 bit of first sample and lower 4 bit of second sample
+        tx[2] = (secondSample >> 4) & 0xFF;	// store upper 8 bit of second sample
+
+        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET){}
+        huart2.Instance->TDR = tx[0];	// send first package byte through UART
+
+        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET){}
+        huart2.Instance->TDR = tx[1];	// send second package byte through UART
+
+        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET){}
+        huart2.Instance->TDR = tx[2];	// send third package byte through UART
+
+        haveFirst = 0;	// reset packing state
+    }
 }
 /* USER CODE END 4 */
 
