@@ -31,10 +31,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ECHO_TIMEOUT_US 8000	// max wait time 8000 microsecond
-#define DISTANCE_THRESHOLD_CM 10	// 10 CM ultrasonic sensor threshold
-#define STOP_DELAY_MS 1000	//	"short interval of time" which we put 1 second
-#define OUTLIER_THRESHOLD 600	// range is 0-4095, 600 reject large sudden spike
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,7 +41,9 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
+
 TIM_HandleTypeDef htim16;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -52,9 +51,9 @@ uint16_t rawSample = 0;	// new sample
 uint16_t previousSample = 0;	// previous sample for filter
 uint16_t filteredSample = 0;	// cleaned sample
 
-uint8_t mode = 'M';	// 'M' = Manual, 'D' = Distance Trigger
+uint8_t mode = 'I';	// 'I' = Idle, 'M' = Manual, 'D' = Distance Trigger
 uint8_t command = 0;
-uint8_t recording = 1;
+uint8_t recording = 0;
 
 uint32_t lastDetectedTime = 0;
 uint32_t lastDistanceCheck = 0;
@@ -79,6 +78,10 @@ void send_audio_sample(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define ECHO_TIMEOUT_US 8000	// max wait time 8000 microsecond
+#define DISTANCE_THRESHOLD_CM 10	// 10 CM ultrasonic sensor threshold
+#define STOP_DELAY_MS 1000	//	"short interval of time" which we put 1 second
+#define OUTLIER_THRESHOLD 600	// range is 0-4095, 600 reject large sudden spike
 
 /* USER CODE END 0 */
 
@@ -122,64 +125,75 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  {
-      if (HAL_UART_Receive(&huart2, &command, 1, 0) == HAL_OK)	// try to receive command from Python
-      {
-          if (command == 'M')
-          {
-              mode = 'M';
-              recording = 1;
-              previousSample = 2048;	// reset filter midpoint for 12 bit
-              haveFirst = 0;	// reset packed byte state
-          }
-          else if (command == 'D')
-          {
-              mode = 'D';
-              recording = 0;
-              lastDetectedTime = 0;
-              lastDistanceCheck = 0;
-              previousSample = 2048;	//	12 bit midpoint
-              haveFirst = 0;	// reset packed byte state
-          }
-      }
-      if (mode == 'M')
-      {
-          send_audio_sample();
-      }
-      else if (mode == 'D')
-      {
-          if (HAL_GetTick() - lastDistanceCheck >= 300)	// check distance every 300ms
-          {
-              lastDistanceCheck = HAL_GetTick();
+    {
+    /*USER CODE START 3 */
+	  if (HAL_UART_Receive(&huart2, &command, 1, 0) == HAL_OK)	// try to receive command from Python
+	  {
+		  if (command == 'M')
+		  {
+			  mode = 'M';
+			  recording = 1;
+			  rawSample = 2048;	// reset filter midpoint for 12 bit
+			  filteredSample = 2048;
+			  previousSample = 2048;
+			  haveFirst = 0;	// reset packed byte state
+		  }
+		  else if (command == 'D')
+		  {
+			  mode = 'D';
+			  recording = 0;
+			  lastDetectedTime = 0;
+ 			  lastDistanceCheck = 0;
+ 			  rawSample = 2048;	// reset filter midpoint for 12 bit
+			  filteredSample = 2048;
+			  previousSample = 2048;
+			  haveFirst = 0;	// reset packed byte state
+		  }
+		  else if (command == 'I')
+		  {
+			  mode = 'I';
+			  recording = 0;
+			  rawSample = 2048;
+			  filteredSample = 2048;
+			  previousSample = 2048;
+			  haveFirst = 0;
+		  }
+	  }
+	  if (mode == 'M')
+	  {
+		  send_audio_sample();
+	  }
+	  else if (mode == 'D')
+	  {
+		  if (HAL_GetTick() - lastDistanceCheck >= 300)	// check distance every 300ms
+		  {
+			  lastDistanceCheck = HAL_GetTick();
 
-              distance_cm = get_distance_cm();
+			  distance_cm = get_distance_cm();
 
-              if (distance_cm > 1 && distance_cm < DISTANCE_THRESHOLD_CM)	// if distance between 1 and 10 cm
-              {
-                  recording = 1;
-                  lastDetectedTime = HAL_GetTick();
-              }
+			  if (distance_cm > 1 && distance_cm < DISTANCE_THRESHOLD_CM)	// if distance between 1 and 10 cm
+			  {
+				  recording = 1;
+				  lastDetectedTime = HAL_GetTick();
+			  }
 
-              if (recording && (HAL_GetTick() - lastDetectedTime > STOP_DELAY_MS))	// if object have gone for at least 1 second
-              {
-                  recording = 0;
-                  haveFirst = 0;	// discard incomplete packed sample
-              }
-          }
+			  if (recording && (HAL_GetTick() - lastDetectedTime > STOP_DELAY_MS))	// if object have gone for at least 1 second
+			  {
+				  recording = 0;
+				  haveFirst = 0;	// discard incomplete packed sample
+			  }
+		  }
 
-          if (recording)
-          {
-              send_audio_sample();
-          }
-          else
-          {
-              HAL_Delay(5);
-          }
-      }
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
+		  if (recording)
+		  {
+			  send_audio_sample();
+		  }
+		  else
+		  {
+			  HAL_Delay(5);
+		  }
+	  }
+    }
   /* USER CODE END 3 */
 }
 
@@ -240,6 +254,7 @@ void SystemClock_Config(void)
   */
 static void MX_SPI1_Init(void)
 {
+
   /* USER CODE BEGIN SPI1_Init 0 */
 
   /* USER CODE END SPI1_Init 0 */
@@ -251,7 +266,7 @@ static void MX_SPI1_Init(void)
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_SLAVE;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES_RXONLY;
-  hspi1.Init.DataSize = SPI_DATASIZE_12BIT;
+  hspi1.Init.DataSize = SPI_DATASIZE_16BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
@@ -278,6 +293,7 @@ static void MX_SPI1_Init(void)
   */
 static void MX_TIM16_Init(void)
 {
+
   /* USER CODE BEGIN TIM16_Init 0 */
 
   /* USER CODE END TIM16_Init 0 */
@@ -286,7 +302,7 @@ static void MX_TIM16_Init(void)
 
   /* USER CODE END TIM16_Init 1 */
   htim16.Instance = TIM16;
-  htim16.Init.Prescaler = 0;
+  htim16.Init.Prescaler = 31;
   htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim16.Init.Period = 65535;
   htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -318,7 +334,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 230400;
+  huart2.Init.BaudRate = 921600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -381,7 +397,7 @@ void delay_us(uint16_t us) // microsecond delay
 
     while (__HAL_TIM_GET_COUNTER(&htim16) < us)	// block the code until time reach
     {
-        continue;
+        // wait
     }
 }
 
@@ -437,6 +453,7 @@ void send_audio_sample(void)
     }
 
     int16_t delta = (int16_t)rawSample - (int16_t)previousSample;	// to detect sudden spike
+
     if (delta > OUTLIER_THRESHOLD || delta < -OUTLIER_THRESHOLD)
     {
         outlierStrike++;
@@ -457,7 +474,9 @@ void send_audio_sample(void)
 
     filteredSample = (rawSample + previousSample) / 2;	// moving average filter
     previousSample = rawSample;
+
     uint16_t sample = filteredSample & 0x0FFF;	// make sure is 12 bit
+
 
     /*
      * if send 12 bit sample as 2 byte: 44138 × 2 bytes × 10 UART bit = 882760 bits/s (baud rate overhead 921600)
@@ -471,19 +490,26 @@ void send_audio_sample(void)
     else
     {
         uint16_t secondSample = sample;	// this is the second sample
+
         uint8_t tx[3];	// the package space
 
         tx[0] = firstSample & 0xFF;	// store lower 8 bit of first sample
         tx[1] = ((firstSample >> 8) & 0x0F) | ((secondSample & 0x0F) << 4);	// store upper 4 bit of first sample and lower 4 bit of second sample
         tx[2] = (secondSample >> 4) & 0xFF;	// store upper 8 bit of second sample
 
-        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET){}
+        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET)
+        {
+        }
         huart2.Instance->TDR = tx[0];	// send first package byte through UART
 
-        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET){}
+        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET)
+        {
+        }
         huart2.Instance->TDR = tx[1];	// send second package byte through UART
 
-        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET){}
+        while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TXE) == RESET)
+        {
+        }
         huart2.Instance->TDR = tx[2];	// send third package byte through UART
 
         haveFirst = 0;	// reset packing state
