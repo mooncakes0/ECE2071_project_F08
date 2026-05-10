@@ -31,7 +31,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define ECHO_TIMEOUT_US 8000	// max wait time 8000 microsecond
+#define DISTANCE_THRESHOLD_CM 10	// 10 CM ultrasonic sensor threshold
+#define STOP_DELAY_MS 1000	//	"short interval of time" which we put 1 second
+#define OUTLIER_THRESHOLD 600	// range is 0-4095, 600 reject large sudden spike
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -78,10 +81,6 @@ void send_audio_sample(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define ECHO_TIMEOUT_US 8000	// max wait time 8000 microsecond
-#define DISTANCE_THRESHOLD_CM 10	// 10 CM ultrasonic sensor threshold
-#define STOP_DELAY_MS 1000	//	"short interval of time" which we put 1 second
-#define OUTLIER_THRESHOLD 600	// range is 0-4095, 600 reject large sudden spike
 
 /* USER CODE END 0 */
 
@@ -126,9 +125,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-
-    /*USER CODE START 3 */
 	  if (HAL_UART_Receive(&huart2, &command, 1, 0) == HAL_OK)	// try to receive command from Python
 	  {
 		  if (command == 'M')
@@ -195,7 +191,11 @@ int main(void)
 			  HAL_Delay(5);
 		  }
 	  }
-    }
+    /* USER CODE END WHILE */
+
+    /*USER CODE START 3 */
+
+  }
   /* USER CODE END 3 */
 }
 
