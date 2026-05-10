@@ -126,6 +126,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* USER CODE END WHILE */
+
+    /*USER CODE START 3 */
 	  if (HAL_UART_Receive(&huart2, &command, 1, 0) == HAL_OK)	// try to receive command from Python
 	  {
 		  if (command == 'M')
@@ -192,10 +195,7 @@ int main(void)
 			  HAL_Delay(5);
 		  }
 	  }
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
+    }
   /* USER CODE END 3 */
 }
 
